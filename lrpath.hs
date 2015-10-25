@@ -7,6 +7,7 @@ module Main where
   import System.Directory
   import System.Environment
   import System.FilePath (pathSeparator)
+  import System.IO.Unsafe
   import System.Process
 
   otoolLoadCommandOutput :: FilePath -> IO String
@@ -77,45 +78,44 @@ module Main where
     let rpaths = rpathsFromOtool otoolOutput
     return rpaths
 
--- get multiple rpaths
-  recursiveRpathsHelper :: [FilePath] -> Map String [String] -> IO (Map String [String])
-  recursiveRpathsHelper [] acc = return acc
-  recursiveRpathsHelper (filePath:l) acc = do
-        isFile <- doesFileExist filePath
-        isDirectory <- doesDirectoryExist filePath
-        case (isFile, isDirectory) of
-          (True, False) -> do
-              rpaths <- readRpaths filePath
-              recursiveRpathsHelper l (Map.insert filePath rpaths acc)
-          (False, True) -> do
-              files <- getDirectoryContents filePath
-              let filePaths = [filePath ++ [pathSeparator] ++ file | file <- files, file `notElem` [".", ".."]]
-              recursiveRpathsHelper (filePaths ++ l) acc
-          _ -> recursiveRpathsHelper l acc
+-- lazily recurse through directories
+  lazyRecursiveFilePathsHelper :: [FilePath] -> IO [FilePath]
+  lazyRecursiveFilePathsHelper [] = return []
+  lazyRecursiveFilePathsHelper (filePath:l) = do
+      isFile <- doesFileExist filePath
+      isDirectory <- doesDirectoryExist filePath
+      case (isFile, isDirectory) of
+        (True, False) -> do
+            morePaths <- unsafeInterleaveIO $ lazyRecursiveFilePathsHelper l
+            return (filePath:morePaths)
+        (False, True) -> do
+            files <- getDirectoryContents filePath
+            let filePaths = [filePath ++ [pathSeparator] ++ file | file <- files, file `notElem` [".", ".."]]
+            lazyRecursiveFilePathsHelper (filePaths ++ l)
+        _ -> lazyRecursiveFilePathsHelper l
 
-  recursiveRpaths :: FilePath -> IO (Map String [String])
-  recursiveRpaths filePath = recursiveRpathsHelper [filePath] Map.empty
+  lazyRecursiveFilePaths :: FilePath -> IO [FilePath]
+  lazyRecursiveFilePaths filePath = unsafeInterleaveIO $ lazyRecursiveFilePathsHelper [filePath]
 
+  -- print all rpaths in hierarchy
   putIndentedList :: String -> [String] -> IO ()
   putIndentedList _ [] = return ()
   putIndentedList indent (l:ls) = do
     putStrLn $ indent ++ l
     putIndentedList indent ls
 
-  putRpathList :: [(String, [String])] -> IO ()
-  putRpathList [] = return ()
-  putRpathList ((filePath, rpaths):l) = do
+  putRpaths :: [FilePath] -> IO ()
+  putRpaths [] = return ()
+  putRpaths (filePath:l) = do
+    rpaths <- readRpaths filePath
     unless (null rpaths) $ do
       putStr filePath
       putStrLn ":"
       putIndentedList "    " rpaths
-    putRpathList l
-
-  putRpathMap :: Map String [String] -> IO ()
-  putRpathMap m = putRpathList $ Map.toAscList m
+    putRpaths l
 
   main :: IO ()
   main = do
     args <- getArgs
-    rpaths <- recursiveRpaths $ head args
-    putRpathMap rpaths
+    filePaths <- lazyRecursiveFilePaths $ head args
+    putRpaths filePaths
