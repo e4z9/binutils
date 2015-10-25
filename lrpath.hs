@@ -1,32 +1,71 @@
 module Main where
 
   import Data.List
+  import Data.Map.Strict (Map)
+  import qualified Data.Map.Strict as Map
   import System.Environment
   import System.Process
-
-  twoLevelReverse :: [[a]] -> [[a]]
-  twoLevelReverse = foldl (\ acc l -> reverse l : acc) []
 
   otoolLoadCommandOutput :: FilePath -> IO String
   otoolLoadCommandOutput filePath = do
     (_, out, _) <- readProcessWithExitCode "otool" ["-l", filePath] ""
     return out
 
--- splitting up into sections
--- possibly do this with Data.List.break instead
-  splitSectionsHelper :: [[String]] -> String -> [[String]]
-  splitSectionsHelper [] s = [[s]]
-  splitSectionsHelper acc s
-    | isSectionHeader s = [s]:acc
-    where isSectionHeader x = "Section" `isPrefixOf` x || "Load command" `isPrefixOf` x
-  splitSectionsHelper (x:acc) s = (s:x):acc
+  -- splitting up into sections
+  -- section data type
+  data SectionType = LoadCommandSection | OtherSection deriving (Show)
+  data Section = Section SectionType (Map String String)
 
-  splitSections :: [String] -> [[String]]
-  splitSections l = twoLevelReverse $ foldl' splitSectionsHelper [] l
+  instance Show Section where
+    show (Section t d) = "Section: " ++ show t ++ " " ++ show d
+
+  emptySection :: SectionType -> Section
+  emptySection t = Section t Map.empty
+
+  insertSectionData :: (String, String) -> Section -> Section
+  insertSectionData ([], _) section = section
+  insertSectionData (key, value) (Section t d) = Section t (Map.insert key value d)
+
+  --
+  parseSectionType :: String -> Maybe SectionType
+  parseSectionType s
+    | "Load command" `isPrefixOf` s = Just LoadCommandSection
+    | "Section" `isPrefixOf` s = Just OtherSection
+    | otherwise = Nothing
+
+  -- parse a key-value pair from  aline of section details from otool output
+  -- using 'words' is somewhat of a poor-mans implementation, but sufficient for the use cases
+  parseSectionData :: String -> (String, String)
+  parseSectionData s = case words s of
+    [key, value] -> (key, value)
+    ("path":path:_) -> ("path", path)
+    ("name":path:_) -> ("name", path)
+    _ -> ("", "")
+
+  -- output line -> (accumulatedSections, currentSection) -> newAcc
+  splitSectionsHelper :: ([Section], Maybe Section) -> String -> ([Section], Maybe Section)
+  splitSectionsHelper (sections, Nothing) s = case parseSectionType s of
+      Just sectionType -> (sections, Just (emptySection sectionType))
+      Nothing -> (sections, Nothing)
+  splitSectionsHelper (sections, Just currentSection) s = case parseSectionType s of
+      Just sectionType -> (currentSection:sections, Just (emptySection sectionType))
+      Nothing -> (sections, Just (insertSectionData (parseSectionData s) currentSection))
+
+  splitSections :: String -> [Section]
+  splitSections l = case foldl' splitSectionsHelper ([], Nothing) (lines l) of
+                      (reverseSections, Nothing) -> reverse reverseSections
+                      (reverseSections, Just lastSection) -> reverse (lastSection:reverseSections)
+
+  rpathOfSection :: Section -> Maybe String
+  rpathOfSection (Section LoadCommandSection d) = case (Map.lookup "cmd" d, Map.lookup "path" d) of
+    (Just "LC_RPATH", Just path) -> Just path
+    _ -> Nothing
+  rpathOfSection _ = Nothing
 
 -- parse rpaths from otool output
   rpathsFromOtool :: String -> [String]
-  rpathsFromOtool otoolOutput = intercalate ["--"] $ splitSections $ lines otoolOutput
+  rpathsFromOtool otoolOutput = foldr addRpath [] (splitSections otoolOutput)
+    where addRpath s acc = case rpathOfSection s of Just rpath -> rpath:acc; _ -> acc
 
 -- get all rpaths for file path
   readRpaths :: FilePath -> IO [String]
@@ -40,4 +79,4 @@ module Main where
     args <- getArgs
     let filePath = head args
     rpaths <- readRpaths filePath
-    putStr $ intercalate "\n" rpaths
+    putStrLn $ intercalate "\n" rpaths
