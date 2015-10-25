@@ -74,9 +74,17 @@ module Main where
     let rpaths = rpathsFromOtool otoolOutput
     return rpaths
 
+  putIndentedList :: String -> [String] -> IO ()
+  putIndentedList _ [] = return ()
+  putIndentedList indent (l:ls) = do
+    putStrLn $ indent ++ l
+    putIndentedList indent ls
+
   main :: IO ()
   main = do
     args <- getArgs
     let filePath = head args
     rpaths <- readRpaths filePath
-    putStrLn $ intercalate "\n" rpaths
+    putStr filePath
+    putStrLn ":"
+    putIndentedList "    " rpaths
