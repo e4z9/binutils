@@ -12,9 +12,23 @@ module Main where
     (_, out, _) <- readProcessWithExitCode "otool" ["-l", filePath] ""
     return out
 
-  rpathsFromOtool :: String -> [String]
-  rpathsFromOtool otoolOutput = lines otoolOutput
+-- splitting up into sections
+-- possibly do this with Data.List.break instead
+  splitSectionsHelper :: [[String]] -> String -> [[String]]
+  splitSectionsHelper [] s = [[s]]
+  splitSectionsHelper acc s
+    | isSectionHeader s = [s]:acc
+    where isSectionHeader x = "Section" `isPrefixOf` x || "Load command" `isPrefixOf` x
+  splitSectionsHelper (x:acc) s = (s:x):acc
 
+  splitSections :: [String] -> [[String]]
+  splitSections l = twoLevelReverse $ foldl' splitSectionsHelper [] l
+
+-- parse rpaths from otool output
+  rpathsFromOtool :: String -> [String]
+  rpathsFromOtool otoolOutput = intercalate ["--"] $ splitSections $ lines otoolOutput
+
+-- get all rpaths for file path
   readRpaths :: FilePath -> IO [String]
   readRpaths filePath = do
     otoolOutput <- otoolLoadCommandOutput filePath
