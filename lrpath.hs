@@ -4,7 +4,9 @@ module Main where
   import Data.List
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
+  import System.Directory
   import System.Environment
+  import System.FilePath (pathSeparator)
   import System.Process
 
   otoolLoadCommandOutput :: FilePath -> IO String
@@ -75,18 +77,45 @@ module Main where
     let rpaths = rpathsFromOtool otoolOutput
     return rpaths
 
+-- get multiple rpaths
+  recursiveRpathsHelper :: [FilePath] -> Map String [String] -> IO (Map String [String])
+  recursiveRpathsHelper [] acc = return acc
+  recursiveRpathsHelper (filePath:l) acc = do
+        isFile <- doesFileExist filePath
+        isDirectory <- doesDirectoryExist filePath
+        case (isFile, isDirectory) of
+          (True, False) -> do
+              rpaths <- readRpaths filePath
+              recursiveRpathsHelper l (Map.insert filePath rpaths acc)
+          (False, True) -> do
+              files <- getDirectoryContents filePath
+              let filePaths = [filePath ++ [pathSeparator] ++ file | file <- files, file `notElem` [".", ".."]]
+              recursiveRpathsHelper (filePaths ++ l) acc
+          _ -> recursiveRpathsHelper l acc
+
+  recursiveRpaths :: FilePath -> IO (Map String [String])
+  recursiveRpaths filePath = recursiveRpathsHelper [filePath] Map.empty
+
   putIndentedList :: String -> [String] -> IO ()
   putIndentedList _ [] = return ()
   putIndentedList indent (l:ls) = do
     putStrLn $ indent ++ l
     putIndentedList indent ls
 
-  main :: IO ()
-  main = do
-    args <- getArgs
-    let filePath = head args
-    rpaths <- readRpaths filePath
+  putRpathList :: [(String, [String])] -> IO ()
+  putRpathList [] = return ()
+  putRpathList ((filePath, rpaths):l) = do
     unless (null rpaths) $ do
       putStr filePath
       putStrLn ":"
-    putIndentedList "    " rpaths
+      putIndentedList "    " rpaths
+    putRpathList l
+
+  putRpathMap :: Map String [String] -> IO ()
+  putRpathMap m = putRpathList $ Map.toAscList m
+
+  main :: IO ()
+  main = do
+    args <- getArgs
+    rpaths <- recursiveRpaths $ head args
+    putRpathMap rpaths
