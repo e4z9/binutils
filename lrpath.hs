@@ -1,5 +1,6 @@
 module Main where
 
+  import Control.Monad
   import Data.List
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
@@ -85,6 +86,7 @@ module Main where
     args <- getArgs
     let filePath = head args
     rpaths <- readRpaths filePath
-    putStr filePath
-    putStrLn ":"
+    unless (null rpaths) $ do
+      putStr filePath
+      putStrLn ":"
     putIndentedList "    " rpaths
