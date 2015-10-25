@@ -1,6 +1,6 @@
 module Main where
 
-  import Control.Monad
+  import Control.Concurrent.Async
   import Data.List
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
@@ -78,6 +78,33 @@ module Main where
     let rpaths = rpathsFromOtool otoolOutput
     return rpaths
 
+-- parMapSeqFinalizeIO
+  finalizeHelper :: (b -> IO ()) -> Async b -> IO ()
+  finalizeHelper f ax = do
+      x <- wait ax
+      f x
+
+  -- mapFun -> finalizeFun -> mapQueue -> finalizeQueue -> nothing
+  parMapSeqFinalizeIOHelper :: (a -> IO b) -> Int -> (b -> IO ()) -> [a] -> [Async b] -> IO ()
+  parMapSeqFinalizeIOHelper _ _ _ [] [] = return ()
+  parMapSeqFinalizeIOHelper m c f [] (a:as) = do
+      finalizeHelper f a
+      parMapSeqFinalizeIOHelper m c f [] as
+  parMapSeqFinalizeIOHelper m c f (x:xs) [] = do
+      newA <- async (m x)
+      parMapSeqFinalizeIOHelper m c f xs [newA]
+  parMapSeqFinalizeIOHelper m c f xAll@(x:xs) aAll@(a:as)
+    | length aAll >= c = do
+        finalizeHelper f a
+        parMapSeqFinalizeIOHelper m c f xAll as
+    | otherwise = do
+        newA <- async (m x)
+        parMapSeqFinalizeIOHelper m c f xs (aAll ++ [newA])
+
+  -- mapFun -> capabilities -> finalizeFun -> list -> nothing
+  parMapSeqFinalizeIO :: (a -> IO b) -> Int -> (b -> IO ()) -> [a] -> IO ()
+  parMapSeqFinalizeIO m f c xs = parMapSeqFinalizeIOHelper m f c xs []
+
 -- lazily recurse through directories
   lazyRecursiveFilePathsHelper :: [FilePath] -> IO [FilePath]
   lazyRecursiveFilePathsHelper [] = return []
@@ -104,18 +131,20 @@ module Main where
     putStrLn $ indent ++ l
     putIndentedList indent ls
 
-  putRpaths :: [FilePath] -> IO ()
-  putRpaths [] = return ()
-  putRpaths (filePath:l) = do
-    rpaths <- readRpaths filePath
-    unless (null rpaths) $ do
+  mapRpaths :: FilePath -> IO (FilePath, [String])
+  mapRpaths filePath = do
+      rpaths <- readRpaths filePath
+      return (filePath, rpaths)
+
+  printRpaths :: (FilePath, [String]) -> IO ()
+  printRpaths (_, []) = return ()
+  printRpaths (filePath, rpaths) = do
       putStr filePath
       putStrLn ":"
       putIndentedList "    " rpaths
-    putRpaths l
 
   main :: IO ()
   main = do
     args <- getArgs
     filePaths <- lazyRecursiveFilePaths $ head args
-    putRpaths filePaths
+    parMapSeqFinalizeIO mapRpaths 8 printRpaths filePaths
