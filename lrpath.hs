@@ -1,6 +1,7 @@
 module Main where
 
   import Control.Concurrent.Async
+  import Control.Monad
   import Data.List
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
@@ -66,16 +67,17 @@ module Main where
     _ -> Nothing
   rpathOfSection _ = Nothing
 
--- parse rpaths from otool output
-  rpathsFromOtool :: String -> [String]
-  rpathsFromOtool otoolOutput = foldr addRpath [] (splitSections otoolOutput)
+-- parse rpaths from otool sections
+  rpathsFromOtoolSections :: [Section] -> Maybe [String]
+  rpathsFromOtoolSections [] = Nothing
+  rpathsFromOtoolSections sections = Just (foldr addRpath [] sections)
     where addRpath s acc = case rpathOfSection s of Just rpath -> rpath:acc; _ -> acc
 
 -- get all rpaths for file path
-  readRpaths :: FilePath -> IO [String]
+  readRpaths :: FilePath -> IO (Maybe [String])
   readRpaths filePath = do
     otoolOutput <- otoolLoadCommandOutput filePath
-    let rpaths = rpathsFromOtool otoolOutput
+    let rpaths = rpathsFromOtoolSections $ splitSections otoolOutput
     return rpaths
 
 -- parMapSeqFinalizeIO
@@ -131,16 +133,18 @@ module Main where
     putStrLn $ indent ++ l
     putIndentedList indent ls
 
-  mapRpaths :: FilePath -> IO (FilePath, [String])
+  mapRpaths :: FilePath -> IO (FilePath, Maybe [String])
   mapRpaths filePath = do
       rpaths <- readRpaths filePath
       return (filePath, rpaths)
 
-  printRpaths :: (FilePath, [String]) -> IO ()
-  printRpaths (_, []) = return ()
-  printRpaths (filePath, rpaths) = do
+  printRpaths :: (FilePath, Maybe [String]) -> IO ()
+  printRpaths (_, Nothing) = return ()
+  printRpaths (filePath, Just rpaths) = do
       putStr filePath
-      putStrLn ":"
+      putStr ":"
+      when (null rpaths) $ putStr " None"
+      putStrLn ""
       putIndentedList "    " rpaths
 
   main :: IO ()
