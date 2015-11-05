@@ -34,9 +34,9 @@ module Main where
   --   separate line afterwards (if any).
   --   Prints the file path followed by __None__ if the RPATH list is empty.
   --   Does not print anything if the RPATH list is 'Nothing'.
-  printRpaths :: (FilePath, Maybe [String]) -> IO ()
-  printRpaths (_, Nothing) = return ()
-  printRpaths (filePath, Just rpaths) = do
+  printRpaths :: (FilePath, Maybe [String]) -> () -> IO ()
+  printRpaths (_, Nothing) _ = return ()
+  printRpaths (filePath, Just rpaths) _ = do
       putStr filePath
       putStr ":"
       when (null rpaths) $ putStr " None"
@@ -48,4 +48,4 @@ module Main where
   main = do
     args <- getArgs
     filePaths <- lazyRecursiveFilePaths $ head args
-    parMapSeqFinalizeIO mapRpaths 8 printRpaths filePaths
+    mapReduceIO mapRpaths 8 printRpaths () filePaths
