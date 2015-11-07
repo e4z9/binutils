@@ -17,7 +17,7 @@ module Ez.Concurrent (mapReduceIO) where
   --   function in the order they appear in the original list.
   mapReduceIO :: (a -> IO b) -- ^ mapping function, applied in parallel on the items in the list
               -> Int -- ^ maximum number of parallel executions of the mapping function
-              -> (b -> c -> IO c) -- ^ reduce function, applied in sequence on the mapping results,
+              -> (c -> b -> IO c) -- ^ reduce function, applied in sequence on the mapping results,
                                   --   gets the next element and previous aggregated value, returns next aggregated value
               -> c -- ^ initial aggregated value for reduce function
               -> [a] -- ^ list of items to process
@@ -27,7 +27,7 @@ module Ez.Concurrent (mapReduceIO) where
   -- | Helper for mapReduceIO.
   mapReduceIOHelper :: (a -> IO b) -- ^ mapping function, applied in parallel on the items in the list
                     -> Int -- ^ maximum number of parallel executions of the mapping function
-                    -> (b -> c -> IO c) -- ^ reduce function, applied in sequence on the mapping results,
+                    -> (c -> b -> IO c) -- ^ reduce function, applied in sequence on the mapping results,
                                         --   gets the next element and previous aggregated value, returns next aggregated value
                     -> c -- ^ current aggregated value for reduce function
                     -> [a] -- ^ list of items to process
@@ -50,10 +50,8 @@ module Ez.Concurrent (mapReduceIO) where
 
   -- | Helper for mapReduceIO that waits on the result of an async
   --   mapping and then applies the reduce function on it.
-  reduceHelper :: (b -> c -> IO c) -- ^ reduce function
+  reduceHelper :: (c -> b -> IO c) -- ^ reduce function
                -> c -- ^ current aggregated value for reduce function
                -> Async b -- ^ async mapping result which is waited for
                -> IO c
-  reduceHelper f agg ax = do
-      x <- wait ax
-      f x agg
+  reduceHelper f agg ax = wait ax >>= f agg
