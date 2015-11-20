@@ -46,5 +46,5 @@ module Main where
   main :: IO ()
   main = do
     args <- getArgs
-    filePaths <- lazyRecursiveFilePaths $ head args
+    filePaths <- fmap concat (mapM lazyRecursiveFilePaths args)
     mapReduceIO mapRpaths 8 (const printRpaths) () filePaths
