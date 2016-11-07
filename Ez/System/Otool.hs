@@ -9,7 +9,9 @@
 -- Running @otool@ on files and interpreting its output.
 module Ez.System.Otool (readRpaths) where
 
+  import Control.Monad (mfilter, guard)
   import Data.List
+  import Data.Maybe (mapMaybe)
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
   import System.Process
@@ -79,17 +81,17 @@ module Ez.System.Otool (readRpaths) where
   -- | Returns 'Just' the path entry if the 'Section' is a @LC_RPATH@ command,
   -- otherwise 'Nothing'.
   rpathOfSection :: Section -> Maybe String
-  rpathOfSection (Section LoadCommandSection d) = case (Map.lookup "cmd" d, Map.lookup "path" d) of
-    (Just "LC_RPATH", Just path) -> Just path
-    _ -> Nothing
+  rpathOfSection (Section LoadCommandSection values) = do
+    mfilter (== "LC_RPATH") $ Map.lookup "cmd" values
+    Map.lookup "path" values
   rpathOfSection _ = Nothing
 
   -- | Takes a list of @otool@ 'Section's and retrieves all @LC_RPATH@ paths from it.
   -- Returns 'Nothing' if there are no 'Section's.
   rpathsFromOtoolSections :: [Section] -> Maybe [String]
-  rpathsFromOtoolSections [] = Nothing
-  rpathsFromOtoolSections sections = Just (foldr addRpath [] sections)
-    where addRpath s acc = case rpathOfSection s of Just rpath -> rpath:acc; _ -> acc
+  rpathsFromOtoolSections sections = do
+    guard $ not $ null sections
+    return $ mapMaybe rpathOfSection sections
 
   -- | Takes a file path and returns either 'Nothing',
   --   if it fails to read any binary information (for example if the file is
