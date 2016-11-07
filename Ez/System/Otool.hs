@@ -9,6 +9,8 @@
 -- Running @otool@ on files and interpreting its output.
 module Ez.System.Otool (readRpaths) where
 
+  import Ez.System.Internal
+
   import Control.Monad (mfilter, void)
   import Data.List
   import Data.Maybe (mapMaybe)
@@ -36,9 +38,6 @@ module Ez.System.Otool (readRpaths) where
   instance Show Section where
     show (Section t d) = "Section: " ++ show t ++ " " ++ show d
 
-  pNumber :: (Num a, Read a) => Parser a
-  pNumber = fmap read (many1 digit)
-
   pLoadCommandH :: Parser SectionHeader
   pLoadCommandH = do
     string "Load command"
@@ -65,15 +64,6 @@ module Ez.System.Otool (readRpaths) where
     char ')'
     return n
 
-  skipRestOfLine :: Parser ()
-  skipRestOfLine = do
-    manyTill anyChar $ try (lookAhead endOfLine)
-    endOfLine
-    return ()
-
-  word :: Parser String
-  word = manyTill anyChar $ try (lookAhead space)
-
   skipMachHeader :: Parser ()
   skipMachHeader = do
     string "Mach header"
@@ -87,7 +77,6 @@ module Ez.System.Otool (readRpaths) where
       $ try (void pOffset) <|> try (lookAhead (void endOfLine))
     endOfLine
     return value
-
 
   pEntryWithName :: Parser String -> Parser (String, String)
   pEntryWithName name = do
@@ -119,9 +108,6 @@ module Ez.System.Otool (readRpaths) where
     eof
     return sections
     where pFileName = skipRestOfLine
-
-  eitherToMaybe :: Either a b -> Maybe b
-  eitherToMaybe = either (const Nothing) Just
 
   parseSections :: String -> Maybe [Section]
   parseSections = eitherToMaybe . runParser pSections () ""
