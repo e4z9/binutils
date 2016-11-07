@@ -16,13 +16,6 @@ module Main where
   import Ez.System.Directory
   import Ez.System.Binutil
 
-  -- | Prints all strings from a list, each on its own line, prefixed with the same string.
-  putIndentedList :: String -> [String] -> IO ()
-  putIndentedList _ [] = return ()
-  putIndentedList indent (l:ls) = do
-    putStrLn $ indent ++ l
-    putIndentedList indent ls
-
   -- | For a given file path returns a tuple with that file path and the
   --   file's RPATHs (if any).
   mapRpaths :: FilePath -> IO (FilePath, Maybe [String])
@@ -40,7 +33,8 @@ module Main where
       putStr filePath >> putStr ":"
       when (null rpaths) $ putStr " None"
       putStrLn ""
-      putIndentedList "    " rpaths
+      putPrefixed "    " rpaths
+      where putPrefixed indent = mapM_ $ putStrLn . (indent ++)
 
   -- | main
   main :: IO ()
