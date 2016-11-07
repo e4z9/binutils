@@ -16,6 +16,6 @@ so you need a working Xcode installation with working command line tools.
 Runs `chrpath -l` and parses its output. You need to have `chrpath` installed.
 
 ##### Building
-The easiest is to install [Haskell Platform](https://www.haskell.org/platform/)
-and run `cabal build` in the source directory. The resulting binary is located
-at `dist/build/lrpath/lrpath`.
+The easiest is to install [Stack](https://www.haskellstack.org/)
+and run `stack build` in the source directory. The resulting binary can be run
+with `stack exec lrpath`, or installed with `stack install`.
