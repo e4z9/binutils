@@ -27,6 +27,7 @@ executable lrpath
                      , containers
                      , directory
                      , filepath
+                     , parsec
                      , process
                      , regex-posix
                      , split

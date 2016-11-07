@@ -9,12 +9,14 @@
 -- Running @otool@ on files and interpreting its output.
 module Ez.System.Otool (readRpaths) where
 
-  import Control.Monad (mfilter, guard)
+  import Control.Monad (mfilter, void)
   import Data.List
   import Data.Maybe (mapMaybe)
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
   import System.Process
+  import Text.Parsec
+  import Text.Parsec.String (Parser)
 
   -- | Runs @otool -l@ on the given file path and returns its output.
   otoolLoadCommandOutput :: FilePath -> IO String
@@ -23,74 +25,120 @@ module Ez.System.Otool (readRpaths) where
     return out
 
   -- | Type of a Mach-O load command section.
-  data SectionType = LoadCommandSection -- ^ Load command.
+  data SectionHeader = LoadCommandSection Integer -- ^ Load command.
       | OtherSection -- ^ Other section.
       deriving (Show)
 
   -- | One Mach-O load command section with key-value pairs.
-  data Section = Section SectionType (Map String String) -- ^ Creates a section with given type and data.
+  data Section = Section SectionHeader (Map String String) -- ^ Creates a section with given type and data.
 
   -- | Shows 'Section' type and key-value map.
   instance Show Section where
     show (Section t d) = "Section: " ++ show t ++ " " ++ show d
 
-  -- | Creates a new, empty 'Section' of the given type.
-  emptySection :: SectionType -> Section
-  emptySection t = Section t Map.empty
+  pNumber :: (Num a, Read a) => Parser a
+  pNumber = fmap read (many1 digit)
 
-  -- | Adds the given (key, value) pair to the 'Section'.
-  insertSectionData :: (String, String) -> Section -> Section
-  insertSectionData ([], _) section = section
-  insertSectionData (key, value) (Section t d) = Section t (Map.insert key value d)
+  pLoadCommandH :: Parser SectionHeader
+  pLoadCommandH = do
+    string "Load command"
+    spaces
+    n <- pNumber
+    endOfLine
+    return $ LoadCommandSection n
 
-  -- | Returns 'Just' the section type, if the input line corresponds
-  --   to a section header from @otool@ output, or 'Nothing' otherwise.
-  parseSectionType :: String -> Maybe SectionType
-  parseSectionType s
-    | "Load command" `isPrefixOf` s = Just LoadCommandSection
-    | "Section" `isPrefixOf` s = Just OtherSection
-    | otherwise = Nothing
+  pSectionH :: Parser SectionHeader
+  pSectionH = do
+    string "Section"
+    manyTill space $ try endOfLine
+    return OtherSection
 
-  -- | Parses a key-value pair from a line of section details from @otool@ output.
-  --   It currently uses 'words' to split key and value, which is somewhat of a
-  --   poor-mans implementation, but was sufficient for the use cases so far
-  parseSectionData :: String -> (String, String)
-  parseSectionData s = case words s of
-    [key, value] -> (key, value)
-    ("path":path:_) -> ("path", path)
-    ("name":path:_) -> ("name", path)
-    _ -> ("", "")
+  pHeader :: Parser SectionHeader
+  pHeader = try pLoadCommandH <|> pSectionH
 
-  -- | Helper for 'splitSections'.
-  splitSectionsHelper :: ([Section], Maybe Section) -- ^ (accumulator, current section to add to)
-                      -> String -- ^ next output line
-                      -> ([Section], Maybe Section) -- ^ new accumulator and current section to add to
-  splitSectionsHelper (sections, Nothing) s = case parseSectionType s of
-      Just sectionType -> (sections, Just (emptySection sectionType))
-      Nothing -> (sections, Nothing)
-  splitSectionsHelper (sections, Just currentSection) s = case parseSectionType s of
-      Just sectionType -> (currentSection:sections, Just (emptySection sectionType))
-      Nothing -> (sections, Just (insertSectionData (parseSectionData s) currentSection))
+  pOffset :: Parser Integer
+  pOffset = do
+    spaces
+    string "(offset"
+    spaces
+    n <- pNumber
+    char ')'
+    return n
 
-  -- | Takes raw @otool@ output and parses into 'Section's.
-  splitSections :: String -> [Section]
-  splitSections l = case foldl' splitSectionsHelper ([], Nothing) (lines l) of
-                      (reverseSections, Nothing) -> reverse reverseSections
-                      (reverseSections, Just lastSection) -> reverse (lastSection:reverseSections)
+  skipRestOfLine :: Parser ()
+  skipRestOfLine = do
+    manyTill anyChar $ try (lookAhead endOfLine)
+    endOfLine
+    return ()
+
+  word :: Parser String
+  word = manyTill anyChar $ try (lookAhead space)
+
+  skipMachHeader :: Parser ()
+  skipMachHeader = do
+    string "Mach header"
+    endOfLine
+    skipRestOfLine -- titles
+    skipRestOfLine -- data
+
+  pEntryValue :: Parser String
+  pEntryValue = do
+    value <- manyTill anyChar
+      $ try (void pOffset) <|> try (lookAhead (void endOfLine))
+    endOfLine
+    return value
+
+
+  pEntryWithName :: Parser String -> Parser (String, String)
+  pEntryWithName name = do
+    spaces
+    key <- name
+    spaces
+    value <- pEntryValue
+    return (key, value)
+
+  pEntry :: Parser (String, String)
+  pEntry = try (pEntryWithName $ string "time stamp")
+    <|> try (pEntryWithName $ string "current version")
+    <|> try (pEntryWithName $ string "compatibility version")
+    <|> pEntryWithName word
+
+  pSection :: Parser Section
+  pSection = do
+    header <- pHeader
+    entries <- manyTill pEntry headerOrEnd
+    return $ Section header (Map.fromList entries)
+    where headerOrEnd = void (try $ lookAhead pHeader) <|> eof
+
+  pSections :: Parser [Section]
+  pSections = do
+    pFileName
+    skipMachHeader
+    sections <- many1 pSection
+    spaces
+    eof
+    return sections
+    where pFileName = skipRestOfLine
+
+  eitherToMaybe :: Either a b -> Maybe b
+  eitherToMaybe = either (const Nothing) Just
+
+  parseSections :: String -> Maybe [Section]
+  parseSections = eitherToMaybe . runParser pSections () ""
 
   -- | Returns 'Just' the path entry if the 'Section' is a @LC_RPATH@ command,
   -- otherwise 'Nothing'.
   rpathOfSection :: Section -> Maybe String
-  rpathOfSection (Section LoadCommandSection values) = do
+  rpathOfSection (Section (LoadCommandSection _) values) = do
     mfilter (== "LC_RPATH") $ Map.lookup "cmd" values
     Map.lookup "path" values
   rpathOfSection _ = Nothing
 
   -- | Takes a list of @otool@ 'Section's and retrieves all @LC_RPATH@ paths from it.
   -- Returns 'Nothing' if there are no 'Section's.
-  rpathsFromOtoolSections :: [Section] -> Maybe [String]
-  rpathsFromOtoolSections sections = do
-    guard $ not $ null sections
+  rpathsFromOtoolSections :: Maybe [Section] -> Maybe [String]
+  rpathsFromOtoolSections maybeSections = do
+    sections <- maybeSections
     return $ mapMaybe rpathOfSection sections
 
   -- | Takes a file path and returns either 'Nothing',
@@ -99,5 +147,4 @@ module Ez.System.Otool (readRpaths) where
   readRpaths :: FilePath -> IO (Maybe [String])
   readRpaths filePath = do
     otoolOutput <- otoolLoadCommandOutput filePath
-    let rpaths = rpathsFromOtoolSections $ splitSections otoolOutput
-    return rpaths
+    return $ rpathsFromOtoolSections $ parseSections otoolOutput
