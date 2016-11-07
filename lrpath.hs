@@ -4,7 +4,7 @@
 -- License     :  MIT
 --
 -- Stability   :  experimental
--- Portability :  non-portable (OS X - only)
+-- Portability :  non-portable (OS X / Linux)
 --
 -- Print all RPATHs found in all binaries in a directory hierarchy.
 module Main where
