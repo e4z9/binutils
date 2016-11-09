@@ -123,14 +123,11 @@ module Ez.System.Otool (readRpaths) where
   -- | Takes a list of @otool@ 'Section's and retrieves all @LC_RPATH@ paths from it.
   -- Returns 'Nothing' if there are no 'Section's.
   rpathsFromOtoolSections :: Maybe [Section] -> Maybe [String]
-  rpathsFromOtoolSections maybeSections = do
-    sections <- maybeSections
-    return $ mapMaybe rpathOfSection sections
+  rpathsFromOtoolSections maybeSections = mapMaybe rpathOfSection <$> maybeSections
 
   -- | Takes a file path and returns either 'Nothing',
   --   if it fails to read any binary information (for example if the file is
   --   not readable, or not a binary), or 'Just' the list of successfully read RPATHs.
   readRpaths :: FilePath -> IO (Maybe [String])
-  readRpaths filePath = do
-    otoolOutput <- otoolLoadCommandOutput filePath
-    return $ rpathsFromOtoolSections $ parseSections otoolOutput
+  readRpaths filePath = parseRpaths <$> otoolLoadCommandOutput filePath
+    where parseRpaths = rpathsFromOtoolSections . parseSections
