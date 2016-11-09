@@ -6,31 +6,43 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (ELF - only)
 --
--- Running @chrpath@ on files and interpreting its output.
+-- Running @objdump@ on files and interpreting its output.
 module Ez.System.Elf (readRpaths) where
 
-  import Data.List.Split
-  import System.Process
-  import Text.Regex.Posix
+  import Ez.System.Internal
 
-  -- | Runs @chrpath -l@ on the given file path and returns its output.
-  chrpathListOutput :: FilePath -> IO String
-  chrpathListOutput filePath = do
-    (_, out, _) <- readProcessWithExitCode "chrpath" ["-l", filePath] ""
+  import System.Process
+  import Text.Parsec
+  import Text.Parsec.String (Parser)
+
+  -- | Runs @objdump -p@ on the given file path and returns its output.
+  objdumpOutput :: FilePath -> IO String
+  objdumpOutput filePath = do
+    (_, out, _) <- readProcessWithExitCode "objdump" ["-p", filePath] ""
     return out
 
-  -- | Takes @chrpath -l@ output and returns a list of RPATHs, or Nothing
+  pPath :: Parser String
+  pPath = many1 (notFollowedBy space >> noneOf [':'])
+
+  pRpathLine :: Parser [String]
+  pRpathLine = do
+    spaces
+    try (string "RPATH") <|> string "RUNPATH"
+    spaces
+    paths <- pPath `sepBy1` char ':'
+    endOfLine
+    return paths
+
+  pRpaths :: Parser [String]
+  pRpaths = do
+    manyTill skipRestOfLine $ try (lookAhead pRpathLine)
+    pRpathLine
+
   parseRpaths :: String -> Maybe [String]
-  parseRpaths [] = Nothing
-  parseRpaths output = Just paths
-      where pattern = ": R(UN)?PATH=(.*)"
-            (_, _, _, groups) = output =~ pattern :: (String, String, String, [String])
-            splitPaths [] = []
-            splitPaths (h:t) = concatMap (splitOn ":") t
-            paths = splitPaths groups
+  parseRpaths = eitherToMaybe . runParser pRpaths () ""
 
   -- | Takes a file path and returns either 'Nothing',
   --   if it fails to read any binary information (for example if the file is
   --   not readable, or not a binary), or 'Just' the list of successfully read RPATHs.
   readRpaths :: FilePath -> IO (Maybe [String])
-  readRpaths filePath = fmap parseRpaths (chrpathListOutput filePath)
+  readRpaths filePath = fmap parseRpaths (objdumpOutput filePath)

@@ -13,7 +13,7 @@ Runs `otool -l` from your Xcode installation and parses all `LC_RPATH` sections,
 so you need a working Xcode installation with working command line tools.
 
 ##### Linux
-Runs `chrpath -l` and parses its output. You need to have `chrpath` installed.
+Runs `objdump -p` and parses its output for `RPATH` or `RUNPATH` entries.
 
 ##### Building
 The easiest is to install [Stack](https://www.haskellstack.org/)

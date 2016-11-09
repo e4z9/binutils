@@ -21,6 +21,7 @@ executable lrpath
                      , Ez.System.Binutil
                      , Ez.System.Directory
                      , Ez.System.Otool
+                     , Ez.System.Elf
   -- other-extensions:
   build-depends:       base
                      , async
@@ -29,7 +30,5 @@ executable lrpath
                      , filepath
                      , parsec
                      , process
-                     , regex-posix
-                     , split
   -- hs-source-dirs:
   default-language:    Haskell2010
