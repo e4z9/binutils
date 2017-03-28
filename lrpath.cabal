@@ -20,6 +20,7 @@ executable lrpath
   other-modules:       Ez.Concurrent
                      , Ez.System.Binutil
                      , Ez.System.Directory
+                     , Ez.System.Internal
                      , Ez.System.Otool
                      , Ez.System.Elf
   -- other-extensions:
