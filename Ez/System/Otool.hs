@@ -11,8 +11,7 @@ module Ez.System.Otool (readRpaths) where
 
   import Ez.System.Internal
 
-  import Control.Monad (mfilter, void)
-  import Data.List
+  import Control.Monad (mfilter, void)  
   import Data.Maybe (mapMaybe)
   import Data.Map.Strict (Map)
   import qualified Data.Map.Strict as Map
